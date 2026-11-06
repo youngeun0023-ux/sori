@@ -16,16 +16,16 @@
   <input type="file" id="file" accept="audio/*,.m4a,.mp3,.wav,.aac,.mp4,.ogg,.flac">
   <div class="filename" id="filename">아직 선택한 파일이 없어요.</div>
   <audio id="player" controls hidden></audio>
-  <div class="fieldrow"><div class="field"><label for="model">음성인식 모델</label><select id="model"><option value="Xenova/whisper-small" selected>정확도 우선 · Small (권장 · 느릴 수 있음)</option><option value="Xenova/whisper-base">가벼운 모델 · Base (빠르지만 부정확할 수 있음)</option><option value="Xenova/whisper-tiny">초고속 · Tiny (회의 녹음 비추천)</option></select></div><div class="field"><label for="chunk">구간 길이</label><select id="chunk"><option value="20" selected>20초 · 발화 기준 분할</option><option value="15">15초 · 저사양 기기</option><option value="25">25초 · 긴 문맥</option></select></div></div>
+  <div class="fieldrow"><div class="field"><label for="model">음성인식 모델</label><select id="model"><option value="Xenova/whisper-base" selected>기본 · Base (아이폰 안정성 우선)</option><option value="Xenova/whisper-tiny">경량 · Tiny (정확도 낮음)</option><option value="Xenova/whisper-small">고정확도 · Small (아이폰 종료 위험)</option></select></div><div class="field"><label for="chunk">구간 길이</label><select id="chunk"><option value="20" selected>20초 · 발화 기준 분할</option><option value="15">15초 · 저사양 기기</option><option value="25">25초 · 긴 문맥</option></select></div></div>
   <button id="start" class="primary" disabled>한국어 받아쓰기 시작</button>
-  <div class="bar"><div id="progress"></div></div><div id="status" class="status" aria-live="polite">녹음파일을 선택해 주세요.</div><div id="log" class="log"></div><p class="small" id="quality">개선된 버전은 음성 구간을 탐지하고, 반복·누락이 의심되면 확인 표시를 남깁니다. AI가 알아듣지 못한 부분을 임의의 말로 채우지 않습니다.</p>
+  <div class="bar"><div id="progress"></div></div><div id="status" class="status" aria-live="polite">녹음파일을 선택해 주세요.</div><div id="log" class="log"></div><p class="small" id="quality">아이폰에서 Small 모델이 다운로드 도중 Safari를 종료시키는 경우가 있어 기본 모델을 Base로 변경했어요. 전사 도중 앱 전환과 화면 잠금을 피하세요. 음성인식 오류는 확인 필요로 표시돼요.</p>
 </section>
 <section class="panel"><div class="head"><h2>📝 녹취록</h2><span class="counter" id="counter">0자</span></div>
 <textarea id="transcript" placeholder="전사를 시작하면 이곳에 녹취록이 나타나요. 직접 수정할 수도 있어요."></textarea>
 <div class="actions"><button class="secondary" id="txt">TXT 저장</button><button class="secondary" id="srt">SRT 자막 저장</button><button class="ghost" id="copy">전체 복사</button><button class="ghost" id="clear">내용 지우기</button></div>
 <div id="segments"></div></section>
 <div class="notice"><strong>사용 전에 읽어주세요.</strong><br>① 첫 실행에는 AI 모델 다운로드가 필요하며, 와이파이를 권장해요. 이후 모델은 브라우저 캐시에 저장될 수 있어요.<br>② 녹음은 서버로 보내지지 않지만, 앱 코드와 AI 모델은 외부 제공처에서 다운로드해요.<br>③ 길이에 따른 월별 요금·사용량 제한은 없지만, 아이폰의 메모리와 성능에 따라 긴 녹음은 실패하거나 느릴 수 있어요.<br>④ 발화 구간을 찾아 전사하지만, 잡음·작은 목소리는 누락될 수 있어요. 의심되는 구간은 확인 표시를 남겨요. 화면을 잠그면 중단될 수 있어요.<br>⑤ 기밀·개인정보가 있는 녹음은 이용 전 기관 보안 규정을 확인해 주세요.</div>
-<footer>소리글 v0.3 · 발화 감지 및 한국어 정확도 개선판</footer>
+<footer>소리글 v0.4 · 아이폰 메모리 안정화판</footer>
 </main>
 <script type="module">
 const $=id=>document.getElementById(id);
@@ -155,17 +155,21 @@ async function recognizeInterval(transcriber,audio,start,end,retry=true){
 
 $('start').onclick=async()=>{
  if(running||!file)return;
+ if($('model').value==='Xenova/whisper-small' && /iPhone|iPad|iPod/.test(navigator.userAgent)){
+  if(!confirm('Small 모델은 아이폰에서 Safari가 강제 종료될 수 있어요. Base 모델을 권장합니다. 그래도 시도할까요?'))return;
+ }
  if(!confirm('현재 녹취록 내용을 새 전사 결과로 바꿀까요?'))return;
  running=true;cancelled=false;$('start').disabled=true;$('file').disabled=true;$('model').disabled=true;$('chunk').disabled=true;segments=[];$('transcript').value='';renderSegments();update();progress(0);
  let audio;
  try{
- status('음성파일을 읽고 있어요…','긴 파일은 아이폰 메모리가 부족할 수 있어요.');audio=await decodeAudio(file);state.duration=audio.duration;
- if(!isFinite(audio.duration)||audio.duration<=0)throw Error('음성 길이를 읽을 수 없어요.');
- status('AI 모델을 불러오는 중…','첫 실행 시 수십~수백 MB를 다운로드할 수 있어요.');
+ status('AI 모델을 준비하는 중…','모델을 먼저 불러오고, 이후 녹음파일을 읽어 메모리 사용 순서를 조정합니다.');
  // CDN module is loaded only after the user taps Start.
  const {pipeline,env}=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1');
  env.allowLocalModels=false;
  const transcriber=await pipeline('automatic-speech-recognition',$('model').value,{device:'wasm',dtype:'q8',progress_callback:p=>{if(p.status==='progress'&&p.progress!==undefined)status('AI 모델을 다운로드하고 있어요…',`${Math.round(p.progress)}% · ${p.file||''}`)}});
+ status('녹음파일을 읽고 있어요…','긴 녹음은 파일 디코딩 때 메모리가 부족할 수 있어요.');
+ audio=await decodeAudio(file);state.duration=audio.duration;
+ if(!isFinite(audio.duration)||audio.duration<=0)throw Error('음성 길이를 읽을 수 없어요.');
  const duration=audio.duration,step=Number($('chunk').value);
  const detection=speechIntervals(audio,step);
  const tasks=detection.chunks,count=tasks.length;
@@ -186,6 +190,6 @@ $('start').onclick=async()=>{
   await new Promise(resolve=>setTimeout(resolve,10));
  }
  status(`처리 완료 · ${count}구간, 확인 필요 ${flagged}구간`,'인식된 문장과 실제 음성을 꼭 대조하세요. 누락이나 오인식이 남을 수 있어요.');
- }catch(e){console.error(e);status('전사가 중단됐어요.',`${e?.message||String(e)} · 일부 내용이 있다면 TXT로 먼저 저장하세요.`)}finally{running=false;$('start').disabled=!file;$('file').disabled=false;$('model').disabled=false;$('chunk').disabled=false;audio=null}
+ }catch(e){console.error(e);status('전사가 중단됐어요.',`${e?.message||String(e)} · 일부 내용이 있다면 TXT로 먼저 저장하세요. 브라우저가 강제 종료되면 이 오류 메시지는 보이지 않을 수 있어요.`)}finally{running=false;$('start').disabled=!file;$('file').disabled=false;$('model').disabled=false;$('chunk').disabled=false;audio=null}
 };
 </script></body></html>
