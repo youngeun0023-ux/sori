@@ -16,16 +16,16 @@
   <input type="file" id="file" accept="audio/*,.m4a,.mp3,.wav,.aac,.mp4,.ogg,.flac">
   <div class="filename" id="filename">아직 선택한 파일이 없어요.</div>
   <audio id="player" controls hidden></audio>
-  <div class="fieldrow"><div class="field"><label for="model">음성인식 모델</label><select id="model"><option value="Xenova/whisper-base" selected>기본 · Base (한국어 권장)</option><option value="Xenova/whisper-small">정확도 우선 · Small (메모리 많이 사용)</option><option value="Xenova/whisper-tiny">초고속 · Tiny (정확도 낮음)</option></select></div><div class="field"><label for="chunk">구간 길이</label><select id="chunk"><option value="15" selected>15초 · 반복 오류 완화</option><option value="20">20초 · 일반</option><option value="25">25초 · 빠른 처리</option></select></div></div>
+  <div class="fieldrow"><div class="field"><label for="model">음성인식 모델</label><select id="model"><option value="Xenova/whisper-small" selected>정확도 우선 · Small (권장 · 느릴 수 있음)</option><option value="Xenova/whisper-base">가벼운 모델 · Base (빠르지만 부정확할 수 있음)</option><option value="Xenova/whisper-tiny">초고속 · Tiny (회의 녹음 비추천)</option></select></div><div class="field"><label for="chunk">구간 길이</label><select id="chunk"><option value="20" selected>20초 · 발화 기준 분할</option><option value="15">15초 · 저사양 기기</option><option value="25">25초 · 긴 문맥</option></select></div></div>
   <button id="start" class="primary" disabled>한국어 받아쓰기 시작</button>
-  <div class="bar"><div id="progress"></div></div><div id="status" class="status" aria-live="polite">녹음파일을 선택해 주세요.</div><div id="log" class="log"></div>
+  <div class="bar"><div id="progress"></div></div><div id="status" class="status" aria-live="polite">녹음파일을 선택해 주세요.</div><div id="log" class="log"></div><p class="small" id="quality">개선된 버전은 음성 구간을 탐지하고, 반복·누락이 의심되면 확인 표시를 남깁니다. AI가 알아듣지 못한 부분을 임의의 말로 채우지 않습니다.</p>
 </section>
 <section class="panel"><div class="head"><h2>📝 녹취록</h2><span class="counter" id="counter">0자</span></div>
 <textarea id="transcript" placeholder="전사를 시작하면 이곳에 녹취록이 나타나요. 직접 수정할 수도 있어요."></textarea>
 <div class="actions"><button class="secondary" id="txt">TXT 저장</button><button class="secondary" id="srt">SRT 자막 저장</button><button class="ghost" id="copy">전체 복사</button><button class="ghost" id="clear">내용 지우기</button></div>
 <div id="segments"></div></section>
-<div class="notice"><strong>사용 전에 읽어주세요.</strong><br>① 첫 실행에는 AI 모델 다운로드가 필요하며, 와이파이를 권장해요. 이후 모델은 브라우저 캐시에 저장될 수 있어요.<br>② 녹음은 서버로 보내지지 않지만, 앱 코드와 AI 모델은 외부 제공처에서 다운로드해요.<br>③ 길이에 따른 월별 요금·사용량 제한은 없지만, 아이폰의 메모리와 성능에 따라 긴 녹음은 실패하거나 느릴 수 있어요.<br>④ 반복되거나 말이 아닌 결과는 오류로 표시해요. 빠진 부분이 있을 수 있으니 녹음을 대조해 주세요. 화면을 잠그면 전사가 중단될 수 있어요.<br>⑤ 기밀·개인정보가 있는 녹음은 이용 전 기관 보안 규정을 확인해 주세요.</div>
-<footer>소리글 v0.2 · 반복 오류 감지 및 재시도 실험판</footer>
+<div class="notice"><strong>사용 전에 읽어주세요.</strong><br>① 첫 실행에는 AI 모델 다운로드가 필요하며, 와이파이를 권장해요. 이후 모델은 브라우저 캐시에 저장될 수 있어요.<br>② 녹음은 서버로 보내지지 않지만, 앱 코드와 AI 모델은 외부 제공처에서 다운로드해요.<br>③ 길이에 따른 월별 요금·사용량 제한은 없지만, 아이폰의 메모리와 성능에 따라 긴 녹음은 실패하거나 느릴 수 있어요.<br>④ 발화 구간을 찾아 전사하지만, 잡음·작은 목소리는 누락될 수 있어요. 의심되는 구간은 확인 표시를 남겨요. 화면을 잠그면 중단될 수 있어요.<br>⑤ 기밀·개인정보가 있는 녹음은 이용 전 기관 보안 규정을 확인해 주세요.</div>
+<footer>소리글 v0.3 · 발화 감지 및 한국어 정확도 개선판</footer>
 </main>
 <script type="module">
 const $=id=>document.getElementById(id);
@@ -46,48 +46,111 @@ $('copy').onclick=async()=>{try{await navigator.clipboard.writeText($('transcrip
 $('clear').onclick=()=>{if(running)return alert('전사가 끝난 뒤 지워주세요.');if(confirm('녹취록 내용을 모두 지울까요?')){$('transcript').value='';segments=[];renderSegments();update();progress(0)}};
 try{const saved=JSON.parse(sessionStorage.getItem('sorigul_draft')||'null');if(saved?.text){$('transcript').value=saved.text;segments=Array.isArray(saved.segments)?saved.segments:[];state.name=saved.name||'';renderSegments();update();status('이전 전사 초안을 복구했어요. 녹음파일은 다시 선택해 주세요.')}}catch{}
 async function decodeAudio(input){const buf=await input.arrayBuffer();const AC=window.AudioContext||window.webkitAudioContext;if(!AC)throw Error('이 브라우저는 오디오 변환을 지원하지 않아요.');const ctx=new AC();try{return await ctx.decodeAudioData(buf)}finally{await ctx.close().catch(()=>{})}}
-function resamplePiece(audio,start,end){const rate=audio.sampleRate,outRate=16000,n=Math.floor((end-start)*outRate);const result=new Float32Array(n);const channels=audio.numberOfChannels;const a=audio.getChannelData(0),b=channels>1?audio.getChannelData(1):null;for(let i=0;i<n;i++){const p=(start+i/outRate)*rate;const x=Math.floor(p),f=p-x;if(x>=a.length)break;const sample=(arr)=>arr[x]*(1-f)+(arr[Math.min(x+1,arr.length-1)]||0)*f;result[i]=b?(sample(a)+sample(b))*.5:sample(a)}return result}
 
-// Small Whisper models sometimes hallucinate one token for an entire segment.
-// Refuse to present these loops as genuine speech, and retry in shorter windows.
+function resamplePiece(audio,start,end){
+ const rate=audio.sampleRate,outRate=16000,n=Math.ceil((end-start)*outRate);
+ const result=new Float32Array(Math.max(1,n)),channels=audio.numberOfChannels;
+ const a=audio.getChannelData(0),b=channels>1?audio.getChannelData(1):null;
+ for(let i=0;i<result.length;i++){
+  const p=(start+i/outRate)*rate,x=Math.floor(p),f=p-x;
+  if(x>=a.length)break;
+  const sample=arr=>arr[x]*(1-f)+arr[Math.min(x+1,arr.length-1)]*f;
+  result[i]=b?(sample(a)+sample(b))*.5:sample(a);
+ }
+ return result;
+}
+// An energy-based speech candidate detector, NOT a true VAD.
+// Do not trust it to distinguish speech from music or loud background noise.
+function speechIntervals(audio,limit){
+ const frame=.03,count=Math.ceil(audio.duration/frame),rate=audio.sampleRate;
+ const a=audio.getChannelData(0),b=audio.numberOfChannels>1?audio.getChannelData(1):null;
+ const rms=new Float32Array(count);
+ for(let k=0;k<count;k++){
+  const lo=Math.floor(k*frame*rate),hi=Math.min(a.length,Math.floor((k+1)*frame*rate)),stride=Math.max(1,Math.floor(rate/8000));
+  let sum=0,n=0;
+  for(let i=lo;i<hi;i+=stride){const v=b?(a[i]+b[i])*.5:a[i];sum+=v*v;n++}
+  rms[k]=Math.sqrt(sum/Math.max(1,n));
+ }
+ const sorted=Array.from(rms).sort((x,y)=>x-y);
+ const q=p=>sorted[Math.min(sorted.length-1,Math.floor(p*(sorted.length-1)))]||0;
+ const noise=q(.18),high=q(.88);
+ // Protect faint recordings; never treat every loud noise as speech by default.
+ const threshold=Math.max(.0028,Math.min(.025,noise*2.2),high*.14);
+ const active=Array.from(rms, v=>v>threshold);
+ // Bridge pauses of up to 0.33 sec so we don't cut phrases at every syllable.
+ const gap=Math.round(.33/frame);let last=-1;
+ for(let i=0;i<active.length;i++)if(active[i]){if(last>=0&&i-last<=gap)for(let j=last;j<i;j++)active[j]=true;last=i}
+ const result=[];let left=-1;
+ for(let i=0;i<=active.length;i++){
+  if(i<active.length&&active[i]&&left<0)left=i;
+  if((i===active.length||!active[i])&&left>=0){
+   const s=Math.max(0,left*frame-.30),e=Math.min(audio.duration,i*frame+.35);
+   if(e-s>=.55)result.push({start:s,end:e});
+   left=-1;
+  }
+ }
+ // Merge near-adjacent speech, then split long speech spans, with 0.25s overlap.
+ const merged=[];
+ for(const seg of result){
+  const prev=merged[merged.length-1];
+  if(prev&&seg.start-prev.end<.65)prev.end=Math.max(prev.end,seg.end);
+  else merged.push({...seg});
+ }
+ const chunks=[];
+ for(const seg of merged){
+  let x=seg.start;
+  while(x<seg.end-.1){
+   const y=Math.min(seg.end,x+limit);
+   if(y-x<.65&&chunks.length){chunks[chunks.length-1].end=y;break}
+   chunks.push({start:x,end:y});
+   if(y>=seg.end)break;
+   x=Math.max(x+1,y-.25);
+  }
+ }
+ return {chunks,noise,threshold,activeFrames:active.filter(Boolean).length,frameCount:count};
+}
 function repetitive(text){
- const t=text.trim(), words=t.replace(/[\[\](),.!?~]/g,' ').split(/\s+/).filter(Boolean);
- if(!t) return false;
- if(/([가-힣A-Za-z]{2,8})(?:\s+\1){5,}/u.test(t))return true;
- if(words.length>=14){
-  const counts=new Map();for(const w of words)counts.set(w,(counts.get(w)||0)+1);
-  const mx=Math.max(...counts.values());
-  if(mx/words.length>.48)return true;
+ const t=text.trim();
+ if(!t)return false;
+ if(/(\[[^\]]+\]|[가-힣A-Za-z]{1,10})(?:[\s,.!?-]+\1){5,}/u.test(t))return true;
+ const words=t.replace(/[\[\](),.!?~]/g,' ').split(/\s+/).filter(Boolean);
+ if(words.length>=12){
+  const counts=new Map();
+  for(const w of words)counts.set(w,(counts.get(w)||0)+1);
+  if(Math.max(...counts.values())/words.length>.42)return true;
  }
- for(let len=1;len<=4;len++){
-  if(words.length<20)continue;
-  const keys=new Map();for(let i=0;i+len<=words.length;i++){const k=words.slice(i,i+len).join(' ');keys.set(k,(keys.get(k)||0)+1)}
-  if([...keys.values()].some(n=>n>12))return true;
- }
+ if(t.length>90 && new Set(t).size<7)return true;
  return false;
 }
-function silent(samples){
- let e=0,peak=0;for(let i=0;i<samples.length;i+=4){let v=samples[i];e+=v*v;peak=Math.max(peak,Math.abs(v))}
- const rms=Math.sqrt(e/Math.ceil(samples.length/4));
- return rms<0.0022||peak<0.012;
+function normalize(samples){
+ let peak=0;for(let i=0;i<samples.length;i++)peak=Math.max(peak,Math.abs(samples[i]));
+ const gain=peak>.03?Math.min(2.8,.85/peak):1;
+ if(gain>1.06)for(let i=0;i<samples.length;i++)samples[i]*=gain;
+ return samples;
 }
 async function recognize(transcriber,samples){
- const output=await transcriber(samples,{language:'korean',task:'transcribe',return_timestamps:false,
-  no_repeat_ngram_size:4,repetition_penalty:1.12,max_new_tokens:224});
+ const output=await transcriber(normalize(samples),{
+  language:'korean',task:'transcribe',return_timestamps:false,
+  max_new_tokens:192,num_beams:1,do_sample:false,
+  no_repeat_ngram_size:4,repetition_penalty:1.15
+ });
  return (output?.text||'').trim();
 }
-async function onePiece(transcriber,audio,start,end,retry=true){
- const samples=resamplePiece(audio,start,end);
- if(silent(samples))return {text:'',uncertain:false};
- let candidate=await recognize(transcriber,samples);
- if(!repetitive(candidate))return {text:candidate,uncertain:false};
- if(retry && end-start>9){
-  const mid=start+(end-start)/2;
-  const a=await onePiece(transcriber,audio,start,mid,false);
-  const b=await onePiece(transcriber,audio,mid,end,false);
-  return {text:[a.text,b.text].filter(Boolean).join(' '),uncertain:a.uncertain||b.uncertain};
+async function recognizeInterval(transcriber,audio,start,end,retry=true){
+ const raw=resamplePiece(audio,start,end);
+ let energy=0;
+ for(let i=0;i<raw.length;i+=8)energy+=raw[i]*raw[i];
+ const rms=Math.sqrt(energy/Math.ceil(raw.length/8));
+ if(rms<.0017)return {text:'',warning:false};
+ let output=await recognize(transcriber,raw);
+ if(!repetitive(output))return {text:output,warning:!output};
+ if(retry&&end-start>7){
+  const mid=(start+end)/2;
+  const a=await recognizeInterval(transcriber,audio,start,mid,false);
+  const b=await recognizeInterval(transcriber,audio,mid,end,false);
+  if(!a.warning&&!b.warning&&a.text&&b.text)return {text:a.text+' '+b.text,warning:false};
  }
- return {text:'[음성인식 오류: 이 구간은 원음을 확인해 주세요]',uncertain:true};
+ return {text:'[확인 필요: 반복 인식 오류]',warning:true};
 }
 
 $('start').onclick=async()=>{
@@ -103,17 +166,26 @@ $('start').onclick=async()=>{
  const {pipeline,env}=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1');
  env.allowLocalModels=false;
  const transcriber=await pipeline('automatic-speech-recognition',$('model').value,{device:'wasm',dtype:'q8',progress_callback:p=>{if(p.status==='progress'&&p.progress!==undefined)status('AI 모델을 다운로드하고 있어요…',`${Math.round(p.progress)}% · ${p.file||''}`)}});
- const duration=audio.duration,step=Number($('chunk').value),count=Math.ceil(duration/step);
+ const duration=audio.duration,step=Number($('chunk').value);
+ const detection=speechIntervals(audio,step);
+ const tasks=detection.chunks,count=tasks.length;
+ if(!count){status('말소리를 찾지 못했어요.','녹음이 작거나 주변 잡음이 심할 수 있어요. 원음을 확인해 주세요.');return}
+ status('발화 구간을 탐지했어요.',`총 ${count}구간 · 전체 ${pretty(duration)} · 화면을 켜두세요.`);
+ let flagged=0;
  for(let i=0;i<count;i++){
-  const start=i*step,end=Math.min((i+1)*step,duration);
+  const {start,end}=tasks[i];
   status(`받아쓰는 중… ${i+1}/${count}구간`,`녹음 위치 ${pretty(start)} ~ ${pretty(end)} · 화면을 켜두세요.`);
-  const piece=await onePiece(transcriber,audio,start,end);
-  const text=piece.text;
-  if(text){segments.push({start,end,text});$('transcript').value += ($('transcript').value?'\n\n':'')+`[${pretty(start)}] ${text}`;renderSegments();update()}
+  const piece=await recognizeInterval(transcriber,audio,start,end);
+  const text=piece.text||'[확인 필요: 음성을 인식하지 못함]';
+  if(piece.warning||!piece.text)flagged++;
+  // Store markers instead of silently pretending uncertain text was correctly recognized.
+  segments.push({start,end,text});
+  $('transcript').value += ($('transcript').value?'\n\n':'')+`[${pretty(start)}] ${text}`;
+  renderSegments();update();
   progress((i+1)/count*100);
   await new Promise(resolve=>setTimeout(resolve,10));
  }
- status(`완료! 총 ${count}개 구간을 처리했어요.`,'반복·무음 감지 결과는 제외하거나 표시했어요. 원음과 꼭 대조해 주세요.');
+ status(`처리 완료 · ${count}구간, 확인 필요 ${flagged}구간`,'인식된 문장과 실제 음성을 꼭 대조하세요. 누락이나 오인식이 남을 수 있어요.');
  }catch(e){console.error(e);status('전사가 중단됐어요.',`${e?.message||String(e)} · 일부 내용이 있다면 TXT로 먼저 저장하세요.`)}finally{running=false;$('start').disabled=!file;$('file').disabled=false;$('model').disabled=false;$('chunk').disabled=false;audio=null}
 };
 </script></body></html>
